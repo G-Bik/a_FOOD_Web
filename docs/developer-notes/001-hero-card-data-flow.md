@@ -1,12 +1,12 @@
-# 001 - Hero Card Data Flow
+# 001 - Hero Carousel Architecture
 
-## Overview
+## Architecture Overview
 
-This document explains how menu data flows from the service layer into the Hero section carousel, how the data is grouped into slide blocks, and how the active slide is rendered dynamically.
+This document explains the complete data flow of the Hero Carousel feature, starting from the mock database (`menu.json`) until menu cards are rendered on screen and updated through carousel navigation.
 
 ---
 
-## Data Flow Diagram
+## Full Data Flow
 
 ```mermaid
 flowchart TD
@@ -23,34 +23,95 @@ D --> E[filter tag recommend]
 
 E --> F[recommendMenus]
 
-F --> G[chunkArray<br/>ITEMS_PER_SLIDE = 4]
+F --> G[chunkArray]
 
-G --> H[slides]
+G --> H[slides Menu[][]]
 
-H --> I[slides currentSlide]
+H --> I[currentSlide State]
 
-I --> J[HeroCardArea]
+I --> J[slides[currentSlide]]
 
-J --> K[HeroCard]
+J --> K[HeroCardArea]
 
-H --> L[slides length]
+K --> L[HeroCard]
 
-L --> M[HeroCarousel]
+H --> M[slides.length]
 
-M --> N[setCurrentSlide]
+M --> N[HeroCarousel]
 
-N --> I
+N --> O[User Click]
+
+O --> P[setCurrentSlide]
+
+P --> I
 ```
 
 ---
 
+# Step 1 - Data Source
+
+## menu.json
+
+The application stores menu information inside `menu.json`.
+
+Each menu item contains:
+
+```ts
+{
+  id: number;
+  name: string;
+  price: number;
+  category: string;
+  description: string;
+  tag: string;
+  stars: number;
+}
+```
+
+Example:
+
+```json
+{
+  "id": 1,
+  "name": "Greek Salad",
+  "tag": "recommend"
+}
+```
+
+This file acts as a temporary mock database.
+
+---
+
+# Step 2 - Service Layer
+
+## menuService.ts
+
+The service layer is responsible for retrieving menu data.
+
+```ts
+export async function getMenus(): Promise<Menu[]> {
+  return new Promise((resolve) => {
+    setTimeout(() => {
+      resolve(menus as Menu[]);
+    }, 500);
+  });
+}
+```
+
+### Responsibilities
+
+- Import menu data from `menu.json`
+- Simulate API latency using `setTimeout`
+- Return a Promise
+- Provide menu data to components
+
+---
+
+# Step 3 - Loading Data
+
 ## HeroSection
 
-### 1. Load Menu Data
-
-`HeroSection` is responsible for fetching menu data from `menuService.ts`.
-
-The `getMenus()` function is called inside a `useEffect()` hook when the component mounts. Once the promise resolves, the returned data is stored inside the `menus` state using `setMenus()`.
+When HeroSection mounts:
 
 ```tsx
 useEffect(() => {
@@ -63,152 +124,335 @@ useEffect(() => {
 }, []);
 ```
 
+### Flow
+
+```txt
+HeroSection Mounted
+        ↓
+getMenus()
+        ↓
+await data
+        ↓
+setMenus(data)
+        ↓
+React Re-render
+```
+
+After this process:
+
+```ts
+menus: Menu[]
+```
+
+contains all menu items.
+
 ---
 
-### 2. Filter Recommended Menus
+# Step 4 - Filter Recommended Menus
 
-After the menu data has been loaded into the `menus` state, the data is filtered to retrieve only items whose `tag` value equals `"recommend"`.
+Only menus with:
+
+```ts
+tag === "recommend";
+```
+
+will appear inside the Hero section.
 
 ```tsx
 const recommendMenus = menus.filter((menu) => menu.tag === "recommend");
 ```
 
-The filtered result is stored in the `recommendMenus` variable.
+Result:
+
+```txt
+All Menus
+    ↓
+filter()
+    ↓
+Recommend Menus
+```
 
 ---
 
-### 3. Create Slide Blocks
+# Step 5 - Create Carousel Slides
 
-The number of menu cards displayed per carousel slide is controlled by the `ITEMS_PER_SLIDE` constant.
+## chunkArray()
+
+The filtered menu data is split into multiple slide groups.
 
 ```tsx
 const ITEMS_PER_SLIDE = 4;
 ```
 
-The filtered menu data is then divided into multiple slide blocks using the `chunkArray()` utility function.
-
 ```tsx
 const slides = chunkArray(recommendMenus, ITEMS_PER_SLIDE);
 ```
 
-For example:
+Example:
 
 ```txt
-recommendMenus = [1,2,3,4,5,6,7,8,9,10]
+recommendMenus
 
-ITEMS_PER_SLIDE = 4
+[1,2,3,4,5,6,7,8,9,10]
 
-slides = [
-  [1,2,3,4],
-  [5,6,7,8],
-  [9,10]
+↓
+
+slides
+
+[
+ [1,2,3,4],
+ [5,6,7,8],
+ [9,10]
 ]
 ```
 
-This creates a two-dimensional array (`Menu[][]`) where each inner array represents a single carousel slide.
+Result type:
+
+```ts
+Menu[][]
+```
+
+Each inner array represents one carousel page.
 
 ---
 
-### 4. Render Active Slide
+# Step 6 - Active Slide State
 
-The currently active slide is determined by the `currentSlide` state.
+HeroSection stores:
+
+```tsx
+const [currentSlide, setCurrentSlide] = useState(0);
+```
+
+Example:
+
+```txt
+currentSlide = 0
+```
+
+Means:
+
+```ts
+slides[0];
+```
+
+is displayed.
+
+If:
+
+```txt
+currentSlide = 1
+```
+
+Then:
+
+```ts
+slides[1];
+```
+
+is displayed.
+
+---
+
+# Step 7 - Send Data to HeroCardArea
+
+HeroSection passes only the active slide.
 
 ```tsx
 <HeroCardArea menus={slides[currentSlide] ?? []} />
 ```
 
-`slides[currentSlide]` retrieves a single slide block from the `slides` array.
+Example:
 
-The fallback operator `?? []` is used to prevent `undefined` values during the initial render while the menu data is still loading.
+```txt
+slides
 
-As a result, `HeroCardArea` always receives a valid array and can safely render menu cards without causing runtime errors.
+[
+ [1,2,3,4],
+ [5,6,7,8]
+]
+
+currentSlide = 0
+
+↓
+
+[1,2,3,4]
+```
+
+Only those four menu items are sent.
+
+The fallback:
+
+```tsx
+?? []
+```
+
+prevents undefined values during the first render.
 
 ---
 
-## HeroCardArea
+# Step 8 - HeroCardArea
 
-`HeroCardArea` receives the currently active slide block through props.
+HeroCardArea receives:
 
-```tsx
-<HeroCardArea menus={slides[currentSlide] ?? []} />
+```ts
+Menu[]
 ```
 
-Because `slides` is a `Menu[][]` structure, accessing `slides[currentSlide]` returns a single `Menu[]` block representing one carousel page.
+through props.
 
-The component then renders each menu item using `.map()`.
+```tsx
+type HeroCardAreaProps = {
+  menus: Menu[];
+};
+```
+
+The component loops through every menu item.
 
 ```tsx
 menus.map((menu) => <HeroCard key={menu.id} menu={menu} />);
 ```
 
-Each menu object is passed into a `HeroCard` component.
+Flow:
 
----
-
-## HeroCard
-
-`HeroCard` is responsible for displaying the individual menu information.
-
-It receives a single `Menu` object through props and renders:
-
-- Menu name
-- Menu description
-- Menu price
-
-```tsx
-<HeroCard menu={menu} />
+```txt
+Menu[]
+   ↓
+.map()
+   ↓
+HeroCard
 ```
 
 ---
 
-## HeroCarousel
+# Step 9 - HeroCard
 
-`HeroCarousel` receives three props from `HeroSection`.
-
-### totalSlides
+HeroCard receives one menu object.
 
 ```tsx
-totalSlides={slides.length}
+type HeroCardProps = {
+  menu: Menu;
+};
 ```
 
-This value allows the carousel to dynamically determine how many navigation buttons should be rendered based on the number of slide blocks generated by `chunkArray()`.
+Example:
+
+```ts
+{
+  id: 1,
+  name: "Greek Salad",
+  price: 80
+}
+```
+
+HeroCard renders:
+
+- Menu Name
+- Description
+- Price
+
+```tsx
+<h3>{menu.name}</h3>
+<p>{menu.description}</p>
+<span>${menu.price}</span>
+```
 
 ---
 
-### currentSlide
+# Step 10 - HeroCarousel
+
+HeroCarousel receives:
 
 ```tsx
-currentSlide = { currentSlide };
+<HeroCarousel
+  totalSlides={slides.length}
+  currentSlide={currentSlide}
+  setCurrentSlide={setCurrentSlide}
+/>
 ```
-
-This value tells the carousel which slide is currently active so the active button styling can be applied.
 
 ---
 
-### setCurrentSlide
+## totalSlides
 
-```tsx
-setCurrentSlide = { setCurrentSlide };
+Determines how many buttons should be rendered.
+
+Example:
+
+```txt
+slides.length = 3
 ```
 
-This function allows the carousel buttons to update the `currentSlide` state stored inside `HeroSection`.
+Result:
 
-When a button is clicked:
-
-1. `setCurrentSlide()` updates the state.
-2. React performs a re-render.
-3. `slides[currentSlide]` points to a different slide block.
-4. `HeroCardArea` receives the new menu group.
-5. The displayed menu cards change automatically.
+```txt
+[1] [2] [3]
+```
 
 ---
 
-## Summary
+## currentSlide
 
-The overall flow is:
+Determines which button is active.
+
+```tsx
+className={
+  currentSlide === index
+    ? "active"
+    : ""
+}
+```
+
+---
+
+## setCurrentSlide
+
+Updates slide state.
+
+```tsx
+onClick={() =>
+  setCurrentSlide(index)
+}
+```
+
+---
+
+# Step 11 - User Interaction
+
+User clicks:
+
+```txt
+Button 2
+```
+
+Flow:
+
+```txt
+User Click
+     ↓
+setCurrentSlide(1)
+     ↓
+State Updated
+     ↓
+React Re-render
+     ↓
+slides[1]
+     ↓
+HeroCardArea
+     ↓
+HeroCard
+```
+
+The displayed menu cards automatically change.
+
+---
+
+# Complete Summary
 
 ```txt
 menu.json
+    ↓
+menuService.ts
     ↓
 getMenus()
     ↓
@@ -229,16 +473,22 @@ HeroCardArea
 HeroCard
 ```
 
-Meanwhile, carousel navigation works as follows:
+Carousel update flow:
 
 ```txt
 HeroCarousel
+      ↓
+User Click
       ↓
 setCurrentSlide()
       ↓
 currentSlide State
       ↓
+HeroSection Re-render
+      ↓
 slides[currentSlide]
       ↓
-HeroCardArea re-renders
+HeroCardArea
+      ↓
+HeroCard
 ```

@@ -1,4 +1,3 @@
-import { useState } from "react";
 import "../../styles/heroSection.css";
 import type { Menu } from "../../types/menu";
 
